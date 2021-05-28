@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "qtBjLj/qVmI5GvDhmM4/F+RAVEGC7Ikd88vrvT/qZWvM9SWMwQ3diy1xfZzjIiLhpU3bTI54R+z/ysggDgCeHw==",
+  "success": true,
+  "projectFilePath": "C:\\Users\\mert2\\Desktop\\dsa\\SRTPluginProviderRE8\\SRTPluginProviderRE5\\SRTPluginProviderRE5.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\mert2\\.nuget\\packages\\system.text.json\\4.7.2\\system.text.json.4.7.2.nupkg.sha512"
+  ],
+  "logs": []
+}
