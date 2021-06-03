@@ -1,4 +1,4 @@
-﻿using ProcessMemory;
+using ProcessMemory;
 using static ProcessMemory.Extensions;
 using System;
 using System.Diagnostics;
@@ -24,10 +24,16 @@ namespace SRTPluginProviderRE5
         // Pointer Address Variables
         private int pointerAddressHP;
         private int pointerAddressEnemyHP;
+        private int pointerAddressMoney;
+        private int pointerAddressKills;
 
         // Pointer Classes
         private IntPtr BaseAddress { get; set; }
         private MultilevelPointer PointerPlayerHP { get; set; }
+        private MultilevelPointer PointerPlayerHP2 { get; set; }
+        private MultilevelPointer PointerMoney { get; set; }
+        private MultilevelPointer PointerKillsChris { get; set; }
+        private MultilevelPointer PointerKillsSheva { get; set; }
         private MultilevelPointer[] PointerEnemyHP { get; set; }
         
         internal GameMemoryRE5Scanner(Process process = null)
@@ -55,10 +61,14 @@ namespace SRTPluginProviderRE5
 
                 // Setup the pointers.
                 PointerPlayerHP = new MultilevelPointer(memoryAccess, IntPtr.Add(BaseAddress, pointerAddressHP), 0x24);
+                PointerPlayerHP2 = new MultilevelPointer(memoryAccess, IntPtr.Add(BaseAddress, pointerAddressHP), 0x28);
+                PointerMoney = new MultilevelPointer(memoryAccess, IntPtr.Add(BaseAddress, pointerAddressMoney));
+                PointerKillsChris = new MultilevelPointer(memoryAccess, IntPtr.Add(BaseAddress, pointerAddressKills));
+                PointerKillsSheva = new MultilevelPointer(memoryAccess, IntPtr.Add(BaseAddress, pointerAddressKills));
 
-                PointerEnemyHP = new MultilevelPointer[20];
+                PointerEnemyHP = new MultilevelPointer[32];
                 for (int i = 0; i < PointerEnemyHP.Length; ++i)
-                    PointerEnemyHP[i] = new MultilevelPointer(memoryAccess, IntPtr.Add(BaseAddress, pointerAddressEnemyHP), 0x30, 0x0 + (i * 0x04), 0x8);
+                    PointerEnemyHP[i] = new MultilevelPointer(memoryAccess, IntPtr.Add(BaseAddress, pointerAddressEnemyHP), 0x140, 0x50, 0x0 + (i * 0x04));
 
                 GenerateEnemyEntries();
             }
@@ -68,6 +78,8 @@ namespace SRTPluginProviderRE5
         {
             pointerAddressHP = 0x00DA2A5C;
             pointerAddressEnemyHP = 0x00DA224C;
+            pointerAddressMoney = 0x00DA23D8;
+            pointerAddressKills = 0x00DA23D8;
         }
 
         /// <summary>
@@ -78,15 +90,19 @@ namespace SRTPluginProviderRE5
         {
             if (PointerEnemyHP == null) // Enter if the pointer table is null (first run) or the size does not match.
             {
-                PointerEnemyHP = new MultilevelPointer[15]; // Create a new enemy pointer table array with the detected size.
+                PointerEnemyHP = new MultilevelPointer[32]; // Create a new enemy pointer table array with the detected size.
                 for (int i = 0; i < PointerEnemyHP.Length; ++i) // Loop through and create all of the pointers for the table.
-                    PointerEnemyHP[i] = new MultilevelPointer(memoryAccess, IntPtr.Add(BaseAddress, pointerAddressEnemyHP), 0x30, 0x0 + (i * 0x04), 0x8);
+                    PointerEnemyHP[i] = new MultilevelPointer(memoryAccess, IntPtr.Add(BaseAddress, pointerAddressEnemyHP), 0x140, 0x50, 0x0 + (i * 0x04));
             }
         }
 
         internal void UpdatePointers()
         {
             PointerPlayerHP.UpdatePointers();
+            PointerPlayerHP2.UpdatePointers();
+            PointerMoney.UpdatePointers();
+            PointerKillsChris.UpdatePointers();
+            PointerKillsSheva.UpdatePointers();
             GenerateEnemyEntries(); // This has to be here for the next part.
             for (int i = 0; i < PointerEnemyHP.Length; ++i)
                 PointerEnemyHP[i].UpdatePointers();
@@ -95,20 +111,42 @@ namespace SRTPluginProviderRE5
         internal unsafe IGameMemoryRE5 Refresh()
         {
             bool success;
+            String S = "You have an S rank";
+            String NotS = "You don't have an S rank";
 
-            // Player HP
+            // Chris HP
             if (SafeReadByteArray(PointerPlayerHP.Address, sizeof(GamePlayerHP), out byte[] gamePlayerHpBytes))
             {
                 var playerHp = GamePlayerHP.AsStruct(gamePlayerHpBytes);
                 gameMemoryValues._playerMaxHealth = playerHp.Max;
                 gameMemoryValues._playerCurrentHealth = playerHp.Current;
             }
+            // Sheva HP
+            if (SafeReadByteArray(PointerPlayerHP2.Address, sizeof(GamePlayerHP), out byte[] gamePlayerHpBytes2))
+            {
+                var playerHp2 = GamePlayerHP.AsStruct(gamePlayerHpBytes2);
+                gameMemoryValues._playerMaxHealth2 = playerHp2.Max;
+                gameMemoryValues._playerCurrentHealth2 = playerHp2.Current;
+            }
+
+            // Money
+            fixed (int* p = &gameMemoryValues._money)
+                success = PointerMoney.TryDerefInt(0x1C0, p);
+                
+
+            // Kills Chris
+            fixed (int* p = &gameMemoryValues._chrisKills)
+                success = PointerKillsChris.TryDerefInt(0x273EC, p);
+
+            // Kills Sheva
+            fixed (int* p = &gameMemoryValues._shevaKills)
+                success = PointerKillsSheva.TryDerefInt(0x27404, p);
 
             // Enemy HP
             GenerateEnemyEntries();
             if (gameMemoryValues._enemyHealth == null)
             {
-                gameMemoryValues._enemyHealth = new EnemyHP[15];
+                gameMemoryValues._enemyHealth = new EnemyHP[32];
                 for (int i = 0; i < gameMemoryValues._enemyHealth.Length; ++i)
                     gameMemoryValues._enemyHealth[i] = new EnemyHP();
             }
@@ -119,10 +157,28 @@ namespace SRTPluginProviderRE5
                     // Check to see if the pointer is currently valid. It can become invalid when rooms are changed.
                     if (PointerEnemyHP[i].Address != IntPtr.Zero)
                     {
-                        fixed (short* p = &gameMemoryValues.EnemyHealth[i]._maximumHP)
-                            PointerEnemyHP[i].TryDerefShort(0x1366, p);
-                        fixed (short* p = &gameMemoryValues.EnemyHealth[i]._currentHP)
-                            PointerEnemyHP[i].TryDerefShort(0x1364, p);
+                        if (i > 0 && PointerEnemyHP[i].Address != PointerEnemyHP[i - 1].Address)
+                        {
+                            fixed (short* p = &gameMemoryValues.EnemyHealth[i]._maximumHP)
+                                PointerEnemyHP[i].TryDerefShort(0x1366, p);
+                            fixed (short* p = &gameMemoryValues.EnemyHealth[i]._currentHP)
+                                PointerEnemyHP[i].TryDerefShort(0x1364, p);
+
+
+                        } else if(i == 0)
+                        {
+                            fixed (short* p = &gameMemoryValues.EnemyHealth[i]._maximumHP)
+                                PointerEnemyHP[i].TryDerefShort(0x1366, p);
+                            fixed (short* p = &gameMemoryValues.EnemyHealth[i]._currentHP)
+                                PointerEnemyHP[i].TryDerefShort(0x1364, p);
+                        }
+                        else
+                        {
+                            // Clear these values out so stale data isn't left behind when the pointer address is no longer value and nothing valid gets read.
+                            // This happens when the game removes pointers from the table (map/room change).
+                            gameMemoryValues.EnemyHealth[i]._maximumHP = 0;
+                            gameMemoryValues.EnemyHealth[i]._currentHP = 0;
+                        }
                     }
                     else
                     {
